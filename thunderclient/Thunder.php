@@ -20,6 +20,7 @@ class Thunder
 	protected $apikey;
 	protected $apisecret;
 	protected $host;
+	protected $params;
 
 	/**
 	 * @var $client Guzzle\Http\Client Guzzle client
@@ -32,13 +33,20 @@ class Thunder
 		$this->apisecret = $apisecret;
 
 		$proto = $https === true ? 'https' : 'http';
-		$this->client = new Client(array(
-			'base_uri' =>  $proto . '://' . $host . ':' . $port . '/',
-			'headers' => array(
+
+		$this->host = $proto . '://' . $host . ':' . $port;
+
+		$this->client = new Client(['verify' => false,'timeout' => 1]);
+		$this->params = [
+			'headers' => [
+				'Host' => $this->host,
 				'Content-Type' => 'application/json',
-				'X-Thunder-Secret-Key' => $this->apisecret
-			)
-		));
+				'X-Thunder-Secret-Key' => $this->apisecret,
+			],
+			'timeout' => 20,
+            		'connect_timeout' => 20,
+            		'body' => ''
+		];
 	}
 
 	protected function make_url($command)
@@ -52,10 +60,10 @@ class Thunder
 			$url .= implode('/', $arguments) . '/';
 		}
 
-		return $url;
+		return $this->host . $url;
 	}
 
-	protected function make_request($method, $url, $data = NULL)
+	protected function make_request($method, $url, $data = null)
 	{
 		$url = call_user_func_array(array($this, 'make_url'), $url);
 
@@ -64,54 +72,47 @@ class Thunder
 			'status' => 500
 		);
 
-		// set the request method
-		switch ($method) {
-			case 'GET':
-				// do nothing, GET is the default request method
-				$request = $this->client->createRequest('GET', $url);
-				break;
-			case 'POST':
-				$request = $this->client->createRequest('POST', $url, array(
-					'body' => json_encode($data)
-				));
-				break;
-			case 'DELETE':
-				$request = $this->client->createRequest('DELETE', $url);
-				break;
-			default:
-				throw new \UnsupportedMethodException(
-					'Unsupported request method: ' . $method
-				);
-				return;
-		}
-
 		try {
-			$response = $this->client->send($request);
+			switch ($method) {
+				case 'GET':
+					$response = $this->client->get($url, $this->params);
+					break;
+				case 'POST':
+					$this->params['body'] = json_encode($data);
+					$response = $this->client->post($url, $this->params);
+					break;
+				case 'DELETE':
+					$response = $this->client->delete($url);
+					break;
+				default:
+					throw new \UnsupportedMethodException(
+						'Unsupported request method: ' . $method
+					);
+					return;
+			}
+
 			$return['data'] = json_decode($response->getBody(), true);
 			$return['data'] = empty($return['data']) ? array() : $return['data'];
 			$return['status'] = $response->getStatusCode();
-		}
-		catch(\RequestException $e) {
+
+		} catch(\RequestException $e) {
 			$return['status'] = $e->getStatusCode();
 			$return['exception'] = $e;
-		}
-		catch(\Exception $e) {
+		} catch(\Exception $e) {
 			$return['exception'] = $e;
 		}
 
 		return $return;
 	}
 
-	// builds function response based on the API response
-	protected function build_response($response, $field = NULL) {
+	protected function build_response($response, $field = null)
+	{
 		if ($response['status'] == 200) {
 			return $response['data'][$field];
-		}
-		else if (is_null($field) && $response['status'] == 204) {
+		} else if (is_null($field) && $response['status'] == 204) {
 			return true;
-		}
-		else {
-			return NULL;
+		} else {
+			return null;
 		}
 	}
 
